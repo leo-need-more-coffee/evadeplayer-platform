@@ -87,6 +87,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      - API_PORT=8000
       - DB_HOST=postgres
       - DB_PORT=5432
       - REDIS_ADDR=redis:6379
