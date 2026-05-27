@@ -39,7 +39,13 @@ logs-transcoder:
 # Перед запуском: cp .env.transcoder.example .env  и прописать адрес основного сервера.
 
 transcoder-up:
-	docker compose -f docker-compose.transcoder.yml up -d
+	@if grep -q '^TRANSCODE_ACCEL=nvidia$$' .env 2>/dev/null; then \
+		docker compose -f docker-compose.transcoder.yml -f docker-compose.nvidia.yml up -d; \
+	elif grep -q '^TRANSCODE_ACCEL=vaapi$$' .env 2>/dev/null; then \
+		docker compose -f docker-compose.transcoder.yml -f docker-compose.vaapi.yml up -d; \
+	else \
+		docker compose -f docker-compose.transcoder.yml up -d; \
+	fi
 
 transcoder-up-nvidia:
 	docker compose -f docker-compose.transcoder.yml -f docker-compose.nvidia.yml up -d
