@@ -99,6 +99,33 @@ func (h *UploadHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *UploadHandler) DownloadOriginal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing video id")
+		return
+	}
+
+	result, err := h.svc.DownloadOriginal(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "video not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer result.Body.Close()
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, result.Filename))
+	if result.Size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", result.Size))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, result.Body)
+}
+
 func (h *UploadHandler) DeleteVideo(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {

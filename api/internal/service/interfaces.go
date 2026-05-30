@@ -22,6 +22,7 @@ type TaskEnqueuer interface {
 
 type BlobStorage interface {
 	Upload(ctx context.Context, filePath string, r io.Reader, contentType string) error
+	Download(ctx context.Context, filePath string) (io.ReadCloser, error)
 	Delete(ctx context.Context, filePath string) error
 	DeleteDir(ctx context.Context, dirPath string) error
 }

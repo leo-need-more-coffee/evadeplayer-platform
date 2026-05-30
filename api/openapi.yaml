@@ -467,6 +467,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /videos/{id}/download:
+    get:
+      tags: [Videos]
+      summary: Download original file
+      description: |
+        Streams the original uploaded file directly from storage.
+
+        Requires `X-Service-Key` header.
+      security:
+        - serviceKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Original file stream
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'attachment; filename="original.mp4"'
+            Content-Length:
+              schema:
+                type: integer
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Missing or invalid service key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Video not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /videos/{id}/status:
     get:
       tags: [Videos]

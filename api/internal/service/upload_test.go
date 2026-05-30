@@ -26,6 +26,9 @@ func (f *fakeStorage) Upload(_ context.Context, path string, _ io.Reader, conten
 	f.uploads = append(f.uploads, uploadRecord{path: path, contentType: contentType})
 	return f.uploadErr
 }
+func (f *fakeStorage) Download(_ context.Context, path string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
 func (f *fakeStorage) Delete(_ context.Context, path string) error {
 	f.deletes = append(f.deletes, path)
 	return nil

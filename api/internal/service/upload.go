@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -58,6 +59,29 @@ func (s *UploadService) Upload(ctx context.Context, in *UploadInput) (*model.Vid
 	}
 
 	return v, nil
+}
+
+type DownloadResult struct {
+	Body     io.ReadCloser
+	Size     int64
+	Filename string
+}
+
+func (s *UploadService) DownloadOriginal(ctx context.Context, id string) (*DownloadResult, error) {
+	v, err := s.videoRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	body, err := s.storage.Download(ctx, v.OriginalPath)
+	if err != nil {
+		return nil, fmt.Errorf("download original: %w", err)
+	}
+	ext := v.OriginalPath[strings.LastIndex(v.OriginalPath, "."):]
+	return &DownloadResult{
+		Body:     body,
+		Size:     v.SizeBytes,
+		Filename: "original" + ext,
+	}, nil
 }
 
 func (s *UploadService) DeleteVideo(ctx context.Context, id string) error {
