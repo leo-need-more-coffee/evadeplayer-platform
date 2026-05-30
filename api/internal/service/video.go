@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -43,10 +44,26 @@ func NewVideoService(videoRepo VideoStorer, hlsTokenSecret, publicHost string, r
 	}
 }
 
+type AudioTrackResponse struct {
+	Index       int    `json:"index"`
+	Language    string `json:"language,omitempty"`
+	Title       string `json:"title,omitempty"`
+	ManifestURL string `json:"manifest_url"`
+}
+
+type SubtitleTrackResponse struct {
+	Index       int    `json:"index"`
+	Language    string `json:"language,omitempty"`
+	Title       string `json:"title,omitempty"`
+	ManifestURL string `json:"manifest_url"`
+}
+
 type VideoResponse struct {
 	*model.Video
-	ManifestURL string `json:"manifest_url,omitempty"`
-	PreviewURL  string `json:"preview_url,omitempty"`
+	ManifestURL    string                  `json:"manifest_url,omitempty"`
+	PreviewURL     string                  `json:"preview_url,omitempty"`
+	AudioTracks    []AudioTrackResponse    `json:"audio_tracks,omitempty"`
+	SubtitleTracks []SubtitleTrackResponse `json:"subtitle_tracks,omitempty"`
 }
 
 func (s *VideoService) GetVideo(ctx context.Context, id string) (*VideoResponse, error) {
@@ -56,14 +73,67 @@ func (s *VideoService) GetVideo(ctx context.Context, id string) (*VideoResponse,
 	}
 	resp := &VideoResponse{Video: v}
 	if v.Status == model.StatusReady {
+		var tokenQuery string
 		if s.requireToken {
-			resp.ManifestURL = s.signedManifestURL(id)
-		} else {
-			resp.ManifestURL = fmt.Sprintf("%s/hls-proxy/%s/master.m3u8", s.publicBaseURL, id)
+			expires := time.Now().Add(hlsTokenTTL).Unix()
+			expiresStr := strconv.FormatInt(expires, 10)
+			token := ComputeHLSToken(s.hlsTokenSecret, id, expiresStr)
+			tokenQuery = fmt.Sprintf("?token=%s&expires=%s", token, expiresStr)
 		}
+		resp.ManifestURL = fmt.Sprintf("%s/hls-proxy/%s/master.m3u8%s", s.publicBaseURL, id, tokenQuery)
 		resp.PreviewURL = s.previewURL(id)
+		resp.AudioTracks = s.buildAudioTracks(id, v.AudioTracksRaw, tokenQuery)
+		resp.SubtitleTracks = s.buildSubtitleTracks(id, v.SubtitleTracksRaw, tokenQuery)
 	}
 	return resp, nil
+}
+
+func (s *VideoService) buildAudioTracks(videoID string, raw json.RawMessage, tokenQuery string) []AudioTrackResponse {
+	if len(raw) == 0 {
+		return nil
+	}
+	var tracks []struct {
+		Index    int    `json:"index"`
+		Language string `json:"language"`
+		Title    string `json:"title"`
+	}
+	if err := json.Unmarshal(raw, &tracks); err != nil {
+		return nil
+	}
+	out := make([]AudioTrackResponse, len(tracks))
+	for i, t := range tracks {
+		out[i] = AudioTrackResponse{
+			Index:       t.Index,
+			Language:    t.Language,
+			Title:       t.Title,
+			ManifestURL: fmt.Sprintf("%s/hls-proxy/%s/audio/%d/index.m3u8%s", s.publicBaseURL, videoID, t.Index, tokenQuery),
+		}
+	}
+	return out
+}
+
+func (s *VideoService) buildSubtitleTracks(videoID string, raw json.RawMessage, tokenQuery string) []SubtitleTrackResponse {
+	if len(raw) == 0 {
+		return nil
+	}
+	var tracks []struct {
+		Index    int    `json:"index"`
+		Language string `json:"language"`
+		Title    string `json:"title"`
+	}
+	if err := json.Unmarshal(raw, &tracks); err != nil {
+		return nil
+	}
+	out := make([]SubtitleTrackResponse, len(tracks))
+	for i, t := range tracks {
+		out[i] = SubtitleTrackResponse{
+			Index:       t.Index,
+			Language:    t.Language,
+			Title:       t.Title,
+			ManifestURL: fmt.Sprintf("%s/hls-proxy/%s/subs/%d/index.m3u8%s", s.publicBaseURL, videoID, t.Index, tokenQuery),
+		}
+	}
+	return out
 }
 
 func (s *VideoService) ListVideos(ctx context.Context, page, pageSize int) ([]*model.Video, int, error) {
@@ -91,14 +161,6 @@ func (s *VideoService) GetSegments(ctx context.Context, id string) ([]byte, erro
 
 func (s *VideoService) previewURL(videoID string) string {
 	return fmt.Sprintf("%s/thumbnails/%s/preview.jpg", s.publicBaseURL, videoID)
-}
-
-func (s *VideoService) signedManifestURL(videoID string) string {
-	expires := time.Now().Add(hlsTokenTTL).Unix()
-	expiresStr := strconv.FormatInt(expires, 10)
-	token := ComputeHLSToken(s.hlsTokenSecret, videoID, expiresStr)
-	return fmt.Sprintf("%s/hls-proxy/%s/master.m3u8?token=%s&expires=%s",
-		s.publicBaseURL, videoID, token, expiresStr)
 }
 
 // ComputeHLSToken computes HMAC-SHA256 for a video ID + expiry.

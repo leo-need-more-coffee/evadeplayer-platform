@@ -165,6 +165,10 @@ func (w *Worker) process(ctx context.Context, task TranscodeTask) error {
 	log.Printf("video %s subtitle tracks: extracted=%d/%d", task.VideoID, len(extractedSubs), len(probe.Subtitles))
 	w.setProgress(ctx, task.VideoID, 78)
 
+	if err := w.updateTracks(ctx, task.VideoID, extractedAudio, extractedSubs); err != nil {
+		log.Printf("update tracks for %s: %v (non-fatal)", task.VideoID, err)
+	}
+
 	thumbDir := filepath.Join(workDir, "thumbnails")
 	previewPath := ""
 	if task.PreviewOverride {
@@ -307,6 +311,38 @@ func (w *Worker) updateMetadata(ctx context.Context, videoID string, duration fl
 	_, err := w.db.Exec(ctx, q, duration, width, height, videoID)
 	if err != nil {
 		return fmt.Errorf("update metadata: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) updateTracks(ctx context.Context, videoID string, audio []ffmpeg.AudioStream, subs []ffmpeg.SubtitleStream) error {
+	type track struct {
+		Index    int    `json:"index"`
+		Language string `json:"language,omitempty"`
+		Title    string `json:"title,omitempty"`
+	}
+
+	audioTracks := make([]track, len(audio))
+	for i, a := range audio {
+		audioTracks[i] = track{Index: a.TypeIndex, Language: a.Language, Title: a.Title}
+	}
+	subTracks := make([]track, len(subs))
+	for i, s := range subs {
+		subTracks[i] = track{Index: s.TypeIndex, Language: s.Language, Title: s.Title}
+	}
+
+	audioJSON, err := json.Marshal(audioTracks)
+	if err != nil {
+		return fmt.Errorf("marshal audio tracks: %w", err)
+	}
+	subJSON, err := json.Marshal(subTracks)
+	if err != nil {
+		return fmt.Errorf("marshal subtitle tracks: %w", err)
+	}
+
+	q := `UPDATE videos SET audio_tracks = $1, subtitle_tracks = $2 WHERE id = $3`
+	if _, err := w.db.Exec(ctx, q, audioJSON, subJSON, videoID); err != nil {
+		return fmt.Errorf("update tracks: %w", err)
 	}
 	return nil
 }

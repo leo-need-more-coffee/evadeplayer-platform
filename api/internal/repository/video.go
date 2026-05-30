@@ -39,12 +39,12 @@ func (r *VideoRepo) FindByID(ctx context.Context, id string) (*model.Video, erro
 	v := &model.Video{}
 	q := `SELECT id, status, progress, original_path,
 	             duration, width, height, size_bytes, error_message,
-	             segments, created_at, updated_at
+	             segments, audio_tracks, subtitle_tracks, created_at, updated_at
 	      FROM videos WHERE id = $1`
 	err := r.db.QueryRow(ctx, q, id).Scan(
 		&v.ID, &v.Status, &v.Progress, &v.OriginalPath,
 		&v.Duration, &v.Width, &v.Height, &v.SizeBytes, &v.ErrorMessage,
-		&v.Segments, &v.CreatedAt, &v.UpdatedAt,
+		&v.Segments, &v.AudioTracksRaw, &v.SubtitleTracksRaw, &v.CreatedAt, &v.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
