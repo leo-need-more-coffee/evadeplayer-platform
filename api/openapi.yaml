@@ -10,7 +10,8 @@ info:
     **Upload** (`POST /videos/upload`) always requires `X-Service-Key` header.
 
     **Read** endpoints (`GET /videos`, `GET /videos/{id}`, `GET /videos/{id}/status`,
-    `GET /videos/{id}/storyboard`) are controlled by the `READ_PUBLIC` env variable:
+    `GET /videos/{id}/storyboard`, `GET /videos/{id}/segments`) are controlled by
+    the `READ_PUBLIC` env variable:
     - `READ_PUBLIC=true` (default) — publicly accessible, no auth needed
     - `READ_PUBLIC=false` — `X-Service-Key` required
 
@@ -28,6 +29,18 @@ info:
     4. Player fetches sub-manifests through `/hls-proxy/`, which rewrites segment URLs → `/hls/{videoID}/…`
     5. Segments are served by nginx directly from SeaweedFS; nginx validates
        the token via `GET /internal/validate-hls` before proxying.
+
+    ## Segments
+
+    An optional JSON file can be uploaded alongside the video as the `segments`
+    multipart field. It maps arbitrary segment names to `{ start, end }` intervals
+    (seconds). Useful for marking intros, credits, ad breaks, etc.
+
+    ```json
+    { "intro": { "start": 0, "end": 15 }, "credits": { "start": 3540, "end": 3600 } }
+    ```
+
+    Retrieve it later via `GET /videos/{id}/segments`.
 
     ## Multi-audio tracks and subtitles
 
@@ -79,6 +92,36 @@ components:
       type: string
       enum: [pending, processing, ready, failed]
 
+    Segment:
+      type: object
+      required: [start, end]
+      properties:
+        start:
+          type: number
+          format: float
+          description: Start time in seconds.
+          example: 0
+        end:
+          type: number
+          format: float
+          description: End time in seconds.
+          example: 15
+
+    Segments:
+      type: object
+      description: |
+        Free-form map of named time intervals. Keys are segment names (e.g. `intro`,
+        `credits`, `ad`); values are `{ start, end }` in seconds.
+      additionalProperties:
+        $ref: '#/components/schemas/Segment'
+      example:
+        intro:
+          start: 0
+          end: 15
+        credits:
+          start: 3540
+          end: 3600
+
     Video:
       type: object
       required: [id, status, progress, size_bytes, created_at, updated_at]
@@ -129,6 +172,11 @@ components:
           type: string
           nullable: true
           description: Set when `status=failed`.
+        segments:
+          nullable: true
+          description: Named time intervals uploaded alongside the video. Null if not provided.
+          allOf:
+            - $ref: '#/components/schemas/Segments'
         created_at:
           type: string
           format: date-time
@@ -233,6 +281,9 @@ paths:
         **Supported formats:** `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.m4v`.
 
         **Max file size:** configured via `MAX_UPLOAD_SIZE_GB` (default 50 GB).
+
+        **Segments** — optionally attach a `segments` field (JSON file or raw JSON string)
+        with named time intervals. Invalid JSON is rejected with `400`.
       security:
         - serviceKeyAuth: []
       requestBody:
@@ -247,6 +298,12 @@ paths:
                   type: string
                   format: binary
                   description: Video file to upload.
+                segments:
+                  type: string
+                  description: |
+                    Optional JSON string (or file) mapping segment names to
+                    `{ start, end }` intervals in seconds.
+                  example: '{"intro":{"start":0,"end":15},"credits":{"start":3540,"end":3600}}'
       responses:
         '202':
           description: Accepted — transcoding job queued
@@ -474,6 +531,52 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: Video not found or not yet ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /videos/{id}/segments:
+    get:
+      tags: [Videos]
+      summary: Get video segments
+      description: |
+        Returns the segments JSON that was uploaded alongside the video.
+        Returns `404` if the video does not exist or was uploaded without segments.
+
+        Public when `READ_PUBLIC=true` (default); requires `X-Service-Key`
+        when `READ_PUBLIC=false`.
+      security:
+        - serviceKeyAuth: []
+        - {}
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Segments map
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Segments'
+        '401':
+          description: Service key required but missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Video not found or no segments uploaded
           content:
             application/json:
               schema:
